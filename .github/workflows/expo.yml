@@ -1,417 +1,98 @@
-# =============================================================================
-# SnowB German AI — GitHub Actions CI/CD Workflow
-# =============================================================================
-#
-# TRIGGERS:
-#   • Push to main       → Full CI + EAS Preview APK build
-#   • Push to develop    → Full CI only (no build)
-#   • Pull Request       → Full CI only (no build)
-#   • Manual dispatch    → Choose any build profile
-#
-# REQUIRED GITHUB SECRETS (repo Settings → Secrets → Actions):
-#   EXPO_TOKEN                    Expo access token (expo.dev → Access Tokens)
-#   ANTHROPIC_API_KEY             Claude AI key
-#   FIREBASE_API_KEY              Firebase web config
-#   FIREBASE_AUTH_DOMAIN
-#   FIREBASE_PROJECT_ID
-#   FIREBASE_STORAGE_BUCKET
-#   FIREBASE_MESSAGING_SENDER_ID
-#   FIREBASE_APP_ID
-#   GOOGLE_SERVICES_JSON_BASE64   base64 of google-services.json (optional)
-#
-# HOW TO ENCODE google-services.json:
-#   base64 -i google-services.json | tr -d '\n'   # macOS
-#   base64 -w 0 google-services.json              # Linux
-# =============================================================================
+build-preview:
+  name: EAS Build Preview APK
+  runs-on: ubuntu-latest
+  timeout-minutes: 60
+  needs: ci
 
-name: 🇩🇪 SnowB German AI — CI/CD
+  if: |
+    (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+    (github.event_name == 'workflow_dispatch' && github.event.inputs.run_build == 'true')
 
-on:
-  # ── Manual trigger — click "Run workflow" in GitHub Actions tab ────────────
-  # All inputs are optional with defaults so you can run with one click.
-  workflow_dispatch:
-    inputs:
-      run_build:
-        description: 'Build a preview APK after CI passes?'
-        required: false
-        default: 'false'
-        type: choice
-        options:
-          - 'false'
-          - 'true'
-      build_profile:
-        description: 'EAS Build profile (only used if run_build is true)'
-        required: false
-        default: 'preview'
-        type: choice
-        options:
-          - preview
-          - production-apk
-      platform:
-        description: 'Target platform'
-        required: false
-        default: 'android'
-        type: choice
-        options:
-          - android
-          - all
+  env:
+    PLATFORM: ${{ github.event.inputs.platform }}
+    BUILD_PROFILE: ${{ github.event.inputs.build_profile }}
 
-  # ── Auto triggers ──────────────────────────────────────────────────────────
-  push:
-    branches:
-      - main
-      - develop
-    paths-ignore:
-      - '**.md'
-      - '.github/ISSUE_TEMPLATE/**'
-      - 'docs/**'
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-  pull_request:
-    branches:
-      - main
-      - develop
-    paths-ignore:
-      - '**.md'
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18.19.0
 
-# Prevent duplicate runs on the same branch
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    - name: Cache node_modules
+      id: cache-node-modules
+      uses: actions/cache@v4
+      with:
+        path: node_modules
+        key: node-modules-${{ runner.os }}-${{ hashFiles('package.json') }}
+        restore-keys: |
+          node-modules-${{ runner.os }}-
 
-env:
-  NODE_VERSION: '18.19.0'
+    - name: Install dependencies
+      if: steps.cache-node-modules.outputs.cache-hit != 'true'
+      run: npm install --legacy-peer-deps --no-audit
 
-# =============================================================================
-# JOBS
-# =============================================================================
-jobs:
+    - name: Setup EAS
+      uses: expo/expo-github-action@v8
+      with:
+        eas-version: latest
+        token: ${{ secrets.EXPO_TOKEN }}
 
-  # ╔══════════════════════════════════════════════════════════════════════════╗
-  # ║  JOB 1 — CI: Type-check, Lint, Test                                    ║
-  # ╚══════════════════════════════════════════════════════════════════════════╝
-  ci:
-    name: ✅ CI — Validate & Lint
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    - name: Inject google-services.json
+      env:
+        GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+      run: |
+        if [ -n "$GOOGLE_SERVICES_B64" ]; then
+          echo "$GOOGLE_SERVICES_B64" | base64 --decode > google-services.json
+          echo "google-services.json created"
+        else
+          echo "No GOOGLE_SERVICES_JSON_BASE64 secret found"
+        fi
 
-    steps:
-      # ── 1. Checkout ───────────────────────────────────────────────────────
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+    - name: Create .env file
+      run: |
+        cat > .env << EOF
+        APP_ENV=preview
+        EXPO_PUBLIC_APP_ENV=preview
+        EXPO_PUBLIC_ANTHROPIC_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+        EXPO_PUBLIC_FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}
+        EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.FIREBASE_AUTH_DOMAIN }}
+        EXPO_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
+        EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.FIREBASE_STORAGE_BUCKET }}
+        EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+        EXPO_PUBLIC_FIREBASE_APP_ID=${{ secrets.FIREBASE_APP_ID }}
+        EOF
 
-      # ── 2. Setup Node.js ──────────────────────────────────────────────────
-      # IMPORTANT: Do NOT set cache: 'npm' here.
-      # That option requires a package-lock.json to already exist in the repo.
-      # If the lock file is missing it throws:
-      #   "Dependencies lock file is not found"
-      # We handle caching manually below with actions/cache instead.
-      - name: ⚙️ Setup Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
+    - name: Resolve build settings
+      run: |
+        if [ -z "$PLATFORM" ]; then
+          echo "PLATFORM=android" >> $GITHUB_ENV
+        fi
 
-      # ── 3. Cache node_modules ─────────────────────────────────────────────
-      # Manual cache keyed on package.json contents.
-      # Falls back gracefully when package-lock.json doesn't exist yet.
-      - name: 🗄️ Cache node_modules
-        id: cache-node-modules
-        uses: actions/cache@v4
-        with:
-          path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package.json') }}
-          restore-keys: |
-            node-modules-${{ runner.os }}-
+        if [ -z "$BUILD_PROFILE" ]; then
+          echo "BUILD_PROFILE=preview" >> $GITHUB_ENV
+        fi
 
-      # ── 4. Install dependencies ───────────────────────────────────────────
-      # We use 'npm install' instead of 'npm ci' because:
-      #   - 'npm ci' REQUIRES a package-lock.json to exist
-      #   - 'npm install' generates one if missing and works without it
-      #   - --legacy-peer-deps resolves peer dependency conflicts in the
-      #     React Native / Expo ecosystem (common with mixed package versions)
-      - name: 📦 Install dependencies
-        if: steps.cache-node-modules.outputs.cache-hit != 'true'
-        run: |
-          echo "Installing npm dependencies..."
-          npm install --legacy-peer-deps --no-audit
-          echo "✅ Dependencies installed."
+    - name: Run EAS Build
+      run: |
+        echo "Platform: ${PLATFORM:-android}"
+        echo "Profile: ${BUILD_PROFILE:-preview}"
 
-      # ── 5. Generate / update package-lock.json ────────────────────────────
-      # Ensures a lock file always exists for future 'npm ci' usage and
-      # reproducible builds. Safe to run even if lock file already exists.
-      - name: 🔒 Ensure package-lock.json exists
-        run: |
-          if [ ! -f package-lock.json ]; then
-            echo "No package-lock.json found — generating one..."
-            npm install --package-lock-only --legacy-peer-deps --no-audit
-            echo "✅ package-lock.json generated."
-          else
-            echo "✅ package-lock.json already present."
-          fi
+        eas build \
+          --platform ${PLATFORM:-android} \
+          --profile ${BUILD_PROFILE:-preview} \
+          --non-interactive \
+          --no-wait
 
-      # ── 6. TypeScript type check ──────────────────────────────────────────
-      - name: 🔷 TypeScript — type check
-        run: |
-          echo "Running TypeScript compiler (noEmit — checks only, no output)..."
-          npm run type-check
-        # Fails the job if any TypeScript error exists.
-
-      # ── 7. ESLint ─────────────────────────────────────────────────────────
-      - name: 🔍 ESLint — code quality
-        run: |
-          echo "Linting TypeScript/TSX files..."
-          npm run lint
-        # Config lives in package.json "eslintConfig" key — always committed.
-        # Use 'npm run lint:strict' to enforce zero warnings.
-
-      # ── 8. Prettier format check ──────────────────────────────────────────
-      - name: 💅 Prettier — format check
-        run: npm run format:check
-        # Soft fail — formatting issues don't block merges.
-        continue-on-error: true
-
-      # ── 9. Jest unit tests ────────────────────────────────────────────────
-      - name: 🧪 Jest — unit tests
-        run: |
-          echo "Running test suite..."
-          npm test -- --ci --forceExit --detectOpenHandles --passWithNoTests
-        env:
-          EXPO_PUBLIC_APP_ENV: test
-          EXPO_PUBLIC_ANTHROPIC_KEY: test-key-placeholder
-          EXPO_PUBLIC_FIREBASE_API_KEY: test-key-placeholder
-          EXPO_PUBLIC_FIREBASE_PROJECT_ID: test-project
-
-      # ── 10. Validate eas.json ─────────────────────────────────────────────
-      - name: 📋 Validate eas.json
-        run: |
-          python3 -c "
-          import json, sys
-          try:
-              with open('eas.json') as f:
-                  data = json.load(f)
-              profiles = list(data.get('build', {}).keys())
-              print(f'✅ eas.json valid — profiles: {profiles}')
-          except Exception as e:
-              print(f'❌ eas.json invalid: {e}')
-              sys.exit(1)
-          "
-
-      # ── 11. Expo Doctor ───────────────────────────────────────────────────
-      - name: 🏥 Expo Doctor — config validation
-        run: npx expo-doctor || true
-        # Advisory only — expo-doctor warns about peer deps that don't break builds.
-
-      # ── 12. Secret leak detection ─────────────────────────────────────────
-      - name: 🔐 Security — detect committed secrets
-        run: |
-          FOUND=0
-          for file in .env google-services.json google-play-key.json; do
-            if git ls-files --error-unmatch "$file" 2>/dev/null; then
-              echo "❌ ERROR: '$file' is tracked by git and must be removed!"
-              echo "   Fix: git rm --cached $file && git commit -m 'Remove $file'"
-              FOUND=1
-            fi
-          done
-          if [ "$FOUND" = "0" ]; then
-            echo "✅ No secrets found in git tracking."
-          else
-            exit 1
-          fi
-
-  # ╔══════════════════════════════════════════════════════════════════════════╗
-  # ║  JOB 2 — EAS Build: Preview APK                                        ║
-  # ║  Runs on: push to main  OR  manual dispatch (preview / production-apk) ║
-  # ╚══════════════════════════════════════════════════════════════════════════╝
-  build-preview:
-    name: 🏗️ EAS Build — Preview APK
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    needs: ci
-
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_build == 'true')
-
-    steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-
-      # No cache: 'npm' — same reason as above (requires lock file)
-      - name: ⚙️ Setup Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: 🗄️ Cache node_modules
-        id: cache-node-modules
-        uses: actions/cache@v4
-        with:
-          path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package.json') }}
-          restore-keys: |
-            node-modules-${{ runner.os }}-
-
-      - name: 📦 Install dependencies
-        if: steps.cache-node-modules.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --no-audit
-
-      # expo/expo-github-action installs + authenticates eas-cli automatically.
-      # It also caches the Expo/EAS CLI between runs for faster startup.
-      - name: 🚀 Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      # secrets context is NOT allowed in 'if:' conditions — GitHub enforces this.
-      # Solution: pass secret as env var, then use shell conditional in run block.
-      - name: 🔑 Inject google-services.json
-        env:
-          GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
-        run: |
-          if [ -n "$GOOGLE_SERVICES_B64" ]; then
-            echo "Decoding google-services.json from secret..."
-            echo "$GOOGLE_SERVICES_B64" | base64 --decode > google-services.json
-            echo "✅ google-services.json written."
-          else
-            echo "⚠️  GOOGLE_SERVICES_JSON_BASE64 not set — skipping Firebase inject."
-          fi
-
-      - name: 🌍 Create .env from GitHub Secrets
-        run: |
-          cat > .env << EOF
-          APP_ENV=preview
-          EXPO_PUBLIC_APP_ENV=preview
-          EXPO_PUBLIC_ANTHROPIC_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-          EXPO_PUBLIC_FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}
-          EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.FIREBASE_AUTH_DOMAIN }}
-          EXPO_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
-          EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.FIREBASE_STORAGE_BUCKET }}
-          EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
-          EXPO_PUBLIC_FIREBASE_APP_ID=${{ secrets.FIREBASE_APP_ID }}
-          EOF
-          echo "✅ .env written."
-
-      - name: 🎯 Resolve build profile
-        id: profile
-        run: |
-          PROFILE="${{ github.event.inputs.build_profile }}"
-          # Default to 'preview' if not set (e.g. triggered by push to main)
-          PROFILE="${PROFILE:-preview}"
-          echo "profile=$PROFILE" >> $GITHUB_OUTPUT
-          echo "Resolved build profile: $PROFILE"
-
-      # --non-interactive : required — no stdin in CI
-      # --no-wait         : queue on EAS servers and return immediately.
-      #                     Build link is printed to logs.
-      #                     Remove to wait inline (uses more CI minutes).
-      - name: 🏗️ EAS Build
-        run: |
-          eas build \
-            --platform ${{ github.event.inputs.platform || 'android' }} \
-            --profile ${{ steps.profile.outputs.profile }} \
-            --non-interactive \
-            --no-wait
-
-      - name: 📊 Write job summary
-        run: |
-          echo "## 🏗️ EAS Build Queued" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Profile | \`${{ steps.profile.outputs.profile }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Platform | \`${{ github.event.inputs.platform || 'android' }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Triggered by | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 **View build:** https://expo.dev/accounts/YOUR_USERNAME/projects/snowb-german-ai/builds" >> $GITHUB_STEP_SUMMARY
-
-  # ╔══════════════════════════════════════════════════════════════════════════╗
-  # ║  JOB 3 — EAS Build: Production AAB (manual dispatch only)              ║
-  # ╚══════════════════════════════════════════════════════════════════════════╝
-  build-production:
-    name: 🚀 EAS Build — Production AAB
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    needs: ci
-
-    if: |
-      github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.run_build == 'true' &&
-      github.event.inputs.build_profile == 'production-apk'
-
-    # NOTE: To add deployment protection (required reviewers before production
-    # builds run), create a GitHub Environment named 'production' at:
-    #   repo Settings → Environments → New environment
-    # Then uncomment the lines below:
-    # environment:
-    #   name: production
-
-    steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-
-      - name: ⚙️ Setup Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: 🗄️ Cache node_modules
-        id: cache-node-modules
-        uses: actions/cache@v4
-        with:
-          path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package.json') }}
-          restore-keys: |
-            node-modules-${{ runner.os }}-
-
-      - name: 📦 Install dependencies
-        if: steps.cache-node-modules.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --no-audit
-
-      - name: 🚀 Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: 🔑 Inject google-services.json
-        env:
-          GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
-        run: |
-          if [ -n "$GOOGLE_SERVICES_B64" ]; then
-            echo "$GOOGLE_SERVICES_B64" | base64 --decode > google-services.json
-            echo "✅ google-services.json written."
-          else
-            echo "⚠️  GOOGLE_SERVICES_JSON_BASE64 not set — skipping."
-          fi
-
-      - name: 🌍 Create .env (production)
-        run: |
-          cat > .env << EOF
-          APP_ENV=production
-          EXPO_PUBLIC_APP_ENV=production
-          EXPO_PUBLIC_ANTHROPIC_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-          EXPO_PUBLIC_FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}
-          EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.FIREBASE_AUTH_DOMAIN }}
-          EXPO_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
-          EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.FIREBASE_STORAGE_BUCKET }}
-          EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
-          EXPO_PUBLIC_FIREBASE_APP_ID=${{ secrets.FIREBASE_APP_ID }}
-          EOF
-
-      - name: 🏗️ EAS Build — Production AAB
-        run: |
-          eas build \
-            --platform android \
-            --profile production \
-            --non-interactive \
-            --no-wait
-
-      - name: 📊 Write job summary
-        run: |
-          echo "## 🚀 Production Build Queued" >> $GITHUB_STEP_SUMMARY
-          echo "Check https://expo.dev for the AAB download link when complete." >> $GITHUB_STEP_SUMMARY
-          echo "Submit to Play Store with: \`eas submit --platform android\`" >> $GITHUB_STEP_SUMMARY
+    - name: Write summary
+      run: |
+        echo "## EAS Build Queued" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Profile | ${BUILD_PROFILE:-preview} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Platform | ${PLATFORM:-android} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Triggered by | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
