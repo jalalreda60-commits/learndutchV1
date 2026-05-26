@@ -1,0 +1,195 @@
+{
+  "name": "snowb-german-ai",
+  "version": "1.0.0",
+  "description": "SnowB German AI \u2014 Learn German A1\u2192B2 with an AI tutor, real dialogues, gamification, and offline support.",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "start:clear": "expo start --clear",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "build:dev": "eas build --platform android --profile development --local",
+    "build:preview": "eas build --platform android --profile preview",
+    "build:preview:local": "eas build --platform android --profile preview --local",
+    "build:prod": "eas build --platform android --profile production",
+    "build:prod:apk": "eas build --platform android --profile production-apk",
+    "submit:android": "eas submit --platform android --profile production",
+    "update": "eas update --auto",
+    "update:preview": "eas update --channel preview --message",
+    "type-check": "tsc --noEmit",
+    "type-check:watch": "tsc --noEmit --watch",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"*.{ts,tsx,js,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"*.{ts,tsx,js,json}\"",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch --passWithNoTests",
+    "test:coverage": "jest --coverage --passWithNoTests",
+    "validate": "npm run type-check && npm run lint && npm run format:check",
+    "validate:ci": "npm run type-check && npm run lint",
+    "expo:doctor": "npx expo-doctor",
+    "expo:prebuild": "npx expo prebuild --clean",
+    "expo:prebuild:android": "npx expo prebuild --platform android --clean",
+    "postinstall": "patch-package || true",
+    "prepare": "echo 'Ready.'",
+    "install:ci": "npm install --legacy-peer-deps --no-audit",
+    "install:clean": "rm -rf node_modules && npm install --legacy-peer-deps",
+    "lint:strict": "eslint . --ext .ts,.tsx --max-warnings 0"
+  },
+  "dependencies": {
+    "expo": "~51.0.0",
+    "expo-status-bar": "~1.12.1",
+    "expo-splash-screen": "~0.27.5",
+    "expo-font": "~12.0.5",
+    "expo-linear-gradient": "~13.0.2",
+    "expo-speech": "~12.0.2",
+    "expo-av": "~14.0.4",
+    "expo-notifications": "~0.28.8",
+    "expo-secure-store": "~13.0.2",
+    "expo-file-system": "~17.0.1",
+    "expo-blur": "~13.0.2",
+    "expo-haptics": "~13.0.1",
+    "react": "18.2.0",
+    "react-native": "0.74.1",
+    "react-native-reanimated": "~3.10.1",
+    "react-native-gesture-handler": "~2.16.1",
+    "react-native-safe-area-context": "4.10.1",
+    "react-native-screens": "3.31.1",
+    "@react-navigation/native": "^6.1.17",
+    "@react-navigation/bottom-tabs": "^6.5.20",
+    "@react-navigation/stack": "^6.3.29",
+    "@expo/vector-icons": "^14.0.2",
+    "firebase": "^10.12.2",
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "lottie-react-native": "^6.7.0",
+    "react-native-animatable": "^1.4.0",
+    "react-native-progress": "^5.0.1",
+    "react-native-confetti-cannon": "^1.5.2",
+    "axios": "^1.7.2",
+    "zustand": "^4.5.4",
+    "date-fns": "^3.6.0",
+    "react-native-svg": "15.2.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@types/react": "~18.2.45",
+    "@types/react-native": "~0.73.0",
+    "@types/jest": "^29.5.12",
+    "@typescript-eslint/eslint-plugin": "^7.13.0",
+    "@typescript-eslint/parser": "^7.13.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.34.3",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-native": "^4.1.0",
+    "prettier": "^3.3.2",
+    "jest": "^29.7.0",
+    "jest-expo": "~51.0.0",
+    "@testing-library/react-native": "^12.5.0",
+    "typescript": "^5.3.0",
+    "babel-plugin-module-resolver": "^5.0.2"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "transformIgnorePatterns": [
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|zustand|axios)"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/android/",
+      "/ios/"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.{ts,tsx}",
+      "!src/**/*.d.ts",
+      "!src/**/__tests__/**"
+    ]
+  },
+  "prettier": {
+    "semi": true,
+    "singleQuote": true,
+    "trailingComma": "es5",
+    "printWidth": 100,
+    "tabWidth": 2,
+    "bracketSpacing": true,
+    "arrowParens": "avoid"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "eslintConfig": {
+    "root": true,
+    "parser": "@typescript-eslint/parser",
+    "parserOptions": {
+      "ecmaVersion": 2022,
+      "sourceType": "module",
+      "ecmaFeatures": {
+        "jsx": true
+      }
+    },
+    "settings": {
+      "react": {
+        "version": "detect"
+      }
+    },
+    "env": {
+      "es2022": true
+    },
+    "plugins": [
+      "@typescript-eslint",
+      "react",
+      "react-hooks"
+    ],
+    "extends": [
+      "eslint:recommended",
+      "plugin:@typescript-eslint/recommended",
+      "plugin:react/recommended",
+      "plugin:react-hooks/recommended"
+    ],
+    "rules": {
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          "argsIgnorePattern": "^_"
+        }
+      ],
+      "@typescript-eslint/explicit-function-return-type": "off",
+      "@typescript-eslint/explicit-module-boundary-types": "off",
+      "@typescript-eslint/no-non-null-assertion": "warn",
+      "@typescript-eslint/ban-ts-comment": "warn",
+      "react/react-in-jsx-scope": "off",
+      "react/prop-types": "off",
+      "react/display-name": "off",
+      "react/no-unescaped-entities": "warn",
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
+      "no-console": [
+        "warn",
+        {
+          "allow": [
+            "warn",
+            "error"
+          ]
+        }
+      ],
+      "no-debugger": "error",
+      "prefer-const": "error",
+      "no-var": "error",
+      "eqeqeq": [
+        "error",
+        "always"
+      ]
+    },
+    "ignorePatterns": [
+      "node_modules/",
+      "android/",
+      "ios/",
+      "dist/",
+      "web-build/",
+      "babel.config.js",
+      "coverage/"
+    ]
+  }
+}
