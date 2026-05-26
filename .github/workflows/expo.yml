@@ -27,6 +27,36 @@
 name: 🇩🇪 SnowB German AI — CI/CD
 
 on:
+  # ── Manual trigger — click "Run workflow" in GitHub Actions tab ────────────
+  # All inputs are optional with defaults so you can run with one click.
+  workflow_dispatch:
+    inputs:
+      run_build:
+        description: 'Build a preview APK after CI passes?'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      build_profile:
+        description: 'EAS Build profile (only used if run_build is true)'
+        required: false
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - production-apk
+      platform:
+        description: 'Target platform'
+        required: false
+        default: 'android'
+        type: choice
+        options:
+          - android
+          - all
+
+  # ── Auto triggers ──────────────────────────────────────────────────────────
   push:
     branches:
       - main
@@ -42,26 +72,6 @@ on:
       - develop
     paths-ignore:
       - '**.md'
-
-  workflow_dispatch:
-    inputs:
-      build_profile:
-        description: 'EAS Build profile'
-        required: true
-        default: 'preview'
-        type: choice
-        options:
-          - preview
-          - production-apk
-          - production
-      platform:
-        description: 'Target platform'
-        required: true
-        default: 'android'
-        type: choice
-        options:
-          - android
-          - all
 
 # Prevent duplicate runs on the same branch
 concurrency:
@@ -221,9 +231,7 @@ jobs:
 
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' &&
-       (github.event.inputs.build_profile == 'preview' ||
-        github.event.inputs.build_profile == 'production-apk'))
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_build == 'true')
 
     steps:
       - name: 📥 Checkout repository
@@ -288,11 +296,9 @@ jobs:
       - name: 🎯 Resolve build profile
         id: profile
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            PROFILE="${{ github.event.inputs.build_profile }}"
-          else
-            PROFILE="preview"
-          fi
+          PROFILE="${{ github.event.inputs.build_profile }}"
+          # Default to 'preview' if not set (e.g. triggered by push to main)
+          PROFILE="${PROFILE:-preview}"
           echo "profile=$PROFILE" >> $GITHUB_OUTPUT
           echo "Resolved build profile: $PROFILE"
 
@@ -333,7 +339,8 @@ jobs:
 
     if: |
       github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.build_profile == 'production'
+      github.event.inputs.run_build == 'true' &&
+      github.event.inputs.build_profile == 'production-apk'
 
     # NOTE: To add deployment protection (required reviewers before production
     # builds run), create a GitHub Environment named 'production' at:
